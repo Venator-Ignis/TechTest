@@ -81,15 +81,15 @@ def sync_once() -> None:
                 if ack_data.get("ack") and ack_data.get("tracking_id") == package.tracking_id:
                     package.status = "synced"
                     package.save()
-                    print(f"✓ Synced {package.tracking_id}")
+                    print(f"Synced {package.tracking_id}")
                 else:
-                    print(f"✗ Invalid ACK for {package.tracking_id}")
+                    print(f"Invalid ACK for {package.tracking_id}")
             else:
-                print(f"✗ Sync failed {package.tracking_id}: HTTP {response.status_code}")
+                print(f"Sync failed {package.tracking_id}: HTTP {response.status_code}")
                 
         except requests.exceptions.RequestException as e:
             # Network timeout/failure: retry on next poll cycle
-            print(f"✗ Network error for {package.tracking_id}: {e}")
+            print(f"Network error for {package.tracking_id}: {e}")
 
 
 def main() -> None:

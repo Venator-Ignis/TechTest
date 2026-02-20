@@ -16,8 +16,13 @@ def main() -> None:
     args = parser.parse_args()
 
     init_db()
-    package = Package.create(tracking_id=args.tracking_id, locker_id=LOCKER_ID, status="pending")
-    print(f"Package queued: id={package.id}, tracking_id={package.tracking_id}, locker={LOCKER_ID}")
+    
+    try:
+        package = Package.create(tracking_id=args.tracking_id, locker_id=LOCKER_ID, status="pending")
+        print(f"Package queued: id={package.id}, tracking_id={package.tracking_id}, locker={LOCKER_ID}")
+    except Exception:
+        print(f"Error: Invalid tracking number")
+        exit(1)
 
 
 if __name__ == "__main__":

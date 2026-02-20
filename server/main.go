@@ -51,7 +51,7 @@ func main() {
 		pkg := Package{
 			TrackingID:           payload.TrackingID,
 			LockerID:             payload.LockerID,
-			Status:               payload.Status,
+			Status:               "synced",
 			DropOffTimestamp:     payload.DropOffTimestamp,
 			SyncAttemptTimestamp: payload.SyncAttemptTimestamp,
 			LastSyncAttempt:      payload.LastSyncAttempt,

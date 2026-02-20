@@ -18,12 +18,19 @@ MAX_RETRIES = 5  # Prevent infinite retry loops on permanent failures
 
 
 def to_payload(package: Package) -> dict:
+    drop_off = package.drop_off_timestamp
+    if isinstance(drop_off, str):
+        # Convert space-separated format to ISO8601 with T
+        drop_off_iso = drop_off.replace(" ", "T")
+    else:
+        drop_off_iso = drop_off.isoformat()
+    
     return {
         "tracking_id": package.tracking_id,
         "locker_id": package.locker_id,
         "status": package.status,
-        "drop_off_timestamp": package.drop_off_timestamp.isoformat(),
-        "sync_attempt_timestamp": utc_now().isoformat(),  # Current attempt time
+        "drop_off_timestamp": drop_off_iso,
+        "sync_attempt_timestamp": utc_now().isoformat(),
         "last_sync_attempt": package.sync_attempt_count,
     }
 

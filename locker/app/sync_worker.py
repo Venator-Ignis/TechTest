@@ -15,6 +15,7 @@ SYNC_URL = os.getenv("SERVER_SYNC_URL", "http://localhost:8080/sync")
 INTERVAL_SECONDS = int(os.getenv("SYNC_INTERVAL_SECONDS", "30"))  # 30s to conserve solar battery
 LOCKER_ID = os.getenv("LOCKER_ID", "LOCKER-001")
 MAX_RETRIES = 5  # Prevent infinite retry loops on permanent failures
+BACKOFF_SCHEDULE = [15, 15, 20, 30, 60]  # Seconds to wait after each failed attempt
 
 
 def to_payload(package: Package) -> dict:
@@ -35,6 +36,26 @@ def to_payload(package: Package) -> dict:
     }
 
 
+def should_retry_now(package: Package) -> bool:
+    """Check if enough time has passed since last attempt based on backoff schedule."""
+    if package.last_sync_attempt is None:
+        return True
+    
+    attempt_index = package.sync_attempt_count - 1
+    if attempt_index < 0 or attempt_index >= len(BACKOFF_SCHEDULE):
+        backoff_seconds = BACKOFF_SCHEDULE[-1]  # Use last value for attempts beyond schedule
+    else:
+        backoff_seconds = BACKOFF_SCHEDULE[attempt_index]
+    
+    last_attempt = package.last_sync_attempt
+    if isinstance(last_attempt, str):
+        from dateutil import parser
+        last_attempt = parser.parse(last_attempt)
+    
+    elapsed = (utc_now() - last_attempt).total_seconds()
+    return elapsed >= backoff_seconds
+
+
 def sync_once() -> None:
     # Only sync packages that haven't exceeded retry limit
     pending_packages = Package.select().where(
@@ -42,6 +63,10 @@ def sync_once() -> None:
     )
 
     for package in pending_packages:
+        # Check if enough time has passed based on backoff schedule
+        if not should_retry_now(package):
+            continue
+        
         # Increment counter BEFORE sync to handle crash mid-sync (prevents infinite retries)
         package.sync_attempt_count += 1
         package.last_sync_attempt = utc_now()

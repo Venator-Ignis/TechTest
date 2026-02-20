@@ -9,13 +9,18 @@ import (
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Package struct {
-	ID         uint      `gorm:"primaryKey" json:"id"`
-	TrackingID string    `gorm:"uniqueIndex;not null" json:"tracking_id" binding:"required"`
-	Status     string    `gorm:"not null" json:"status" binding:"required"`
-	CreatedAt  time.Time `gorm:"not null" json:"created_at" binding:"required"`
+	ID                    uint      `gorm:"primaryKey" json:"id"`
+	TrackingID            string    `gorm:"uniqueIndex;not null" json:"tracking_id" binding:"required"` // UUID from locker - collision-resistant across 2000 devices
+	LockerID              string    `gorm:"index;not null" json:"locker_id" binding:"required"`          // Identify which locker sent this
+	Status                string    `gorm:"not null" json:"status" binding:"required"`
+	DropOffTimestamp      time.Time `gorm:"not null" json:"drop_off_timestamp" binding:"required"`      // When customer dropped package (locker's clock)
+	SyncAttemptTimestamp  time.Time `gorm:"not null" json:"sync_attempt_timestamp" binding:"required"`  // When locker attempted sync (handles clock drift)
+	ServerReceivedAt      time.Time `gorm:"autoCreateTime" json:"server_received_at"`                   // Server's authoritative timestamp (audit trail)
+	LastSyncAttempt       int       `gorm:"default:0" json:"last_sync_attempt"`                         // Retry counter from locker
 }
 
 func main() {
@@ -43,18 +48,33 @@ func main() {
 			return
 		}
 
-		toCreate := Package{
-			TrackingID: payload.TrackingID,
-			Status:     payload.Status,
-			CreatedAt:  payload.CreatedAt,
+		pkg := Package{
+			TrackingID:           payload.TrackingID,
+			LockerID:             payload.LockerID,
+			Status:               payload.Status,
+			DropOffTimestamp:     payload.DropOffTimestamp,
+			SyncAttemptTimestamp: payload.SyncAttemptTimestamp,
+			LastSyncAttempt:      payload.LastSyncAttempt,
 		}
 
-		if err := db.Create(&toCreate).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// Idempotent upsert: if locker retries due to timeout/crash, don't create duplicates
+		// ON CONFLICT updates only sync metadata, preserves original drop_off data
+		result := db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "tracking_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"sync_attempt_timestamp", "last_sync_attempt"}),
+		}).Create(&pkg)
+
+		if result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 			return
 		}
 
-		c.JSON(http.StatusCreated, toCreate)
+		// Two-phase commit: send ACK with tracking_id so locker can verify before marking "synced"
+		c.JSON(http.StatusCreated, gin.H{
+			"tracking_id":        pkg.TrackingID,
+			"server_received_at": pkg.ServerReceivedAt,
+			"ack":                true,
+		})
 	})
 
 	port := os.Getenv("PORT")

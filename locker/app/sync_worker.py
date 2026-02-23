@@ -59,7 +59,7 @@ def should_retry_now(package: Package) -> bool:
 def sync_once() -> None:
     # Only sync packages that haven't exceeded retry limit
     pending_packages = Package.select().where(
-        (Package.status != "synced") & (Package.sync_attempt_count < MAX_RETRIES)
+        (Package.status != "synced") & (Package.status != "failed") & (Package.sync_attempt_count < MAX_RETRIES)
     )
 
     for package in pending_packages:
@@ -81,15 +81,27 @@ def sync_once() -> None:
                 if ack_data.get("ack") and ack_data.get("tracking_id") == package.tracking_id:
                     package.status = "synced"
                     package.save()
-                    print(f"Synced {package.tracking_id}")
+                    print(f"✓ Synced {package.tracking_id}")
                 else:
-                    print(f"Invalid ACK for {package.tracking_id}")
+                    print(f"✗ Invalid ACK for {package.tracking_id}")
+                    if package.sync_attempt_count >= MAX_RETRIES:
+                        package.status = "failed"
+                        package.save()
+                        print(f"✗ Package {package.tracking_id} marked as FAILED after {MAX_RETRIES} attempts")
             else:
-                print(f"Sync failed {package.tracking_id}: HTTP {response.status_code}")
+                print(f"✗ Sync failed {package.tracking_id}: HTTP {response.status_code}")
+                if package.sync_attempt_count >= MAX_RETRIES:
+                    package.status = "failed"
+                    package.save()
+                    print(f"✗ Package {package.tracking_id} marked as FAILED after {MAX_RETRIES} attempts")
                 
         except requests.exceptions.RequestException as e:
             # Network timeout/failure: retry on next poll cycle
-            print(f"Network error for {package.tracking_id}: {e}")
+            print(f"✗ Network error for {package.tracking_id}: {e}")
+            if package.sync_attempt_count >= MAX_RETRIES:
+                package.status = "failed"
+                package.save()
+                print(f"✗ Package {package.tracking_id} marked as FAILED after {MAX_RETRIES} attempts")
 
 
 def main() -> None:
